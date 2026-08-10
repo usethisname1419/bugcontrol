@@ -8,7 +8,6 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 PlatformName = Literal["hackerone", "bugcrowd", "yeswehack"]
-SecretsScanner = Literal["gitleaks", "trufflehog"]
 
 
 class Settings(BaseSettings):
@@ -41,7 +40,16 @@ class Settings(BaseSettings):
 
     scan_concurrency: int = 2
     scan_timeout_seconds: int = 1800
-    secrets_scanner: SecretsScanner = "gitleaks"
+    secrets_crawl_max_pages: int = 80
+    secrets_crawl_max_js: int = 500
+    secrets_crawl_depth: int = 3
+    secrets_crawl_timeout: float = 15.0
+    # Cap per JS/HTML read (streamed); default 2 MiB keeps 4GB boxes safe
+    secrets_max_js_bytes: int = 2 * 1024 * 1024
+    secrets_chunk_bytes: int = 64 * 1024
+    secrets_overlap_bytes: int = 2048
+    secrets_max_concurrent: int = 2
+    secrets_max_hits: int = 200
     nmap_bin: str = "nmap"
     sqlmap_bin: str = "sqlmap"
     nikto_bin: str = "nikto"

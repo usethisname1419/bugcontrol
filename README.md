@@ -41,7 +41,7 @@ python -m bugcontrol
 | `/nmap <id>` | Queue nmap |
 | `/sqlmap <id>` | Queue sqlmap |
 | `/nikto <id>` | Queue nikto |
-| `/secrets <id>` | Queue gitleaks/trufflehog |
+| `/secrets <id>` | Live-crawl all JS (streamed) + in-memory regex secrets (22 patterns) |
 | `/nuclei <id>` | Queue nuclei |
 | `/ai <id>` | Launch Cursor cloud agent |
 | `/ai_resume <id> <msg>` | Continue agent |
@@ -70,8 +70,7 @@ Disable platforms with `ENABLED_PLATFORMS=hackerone,bugcrowd` (comma-separated).
 Install on the host PATH (or set `*_BIN` in `.env`):
 
 - `nmap`, `sqlmap`, `nikto`, `nuclei`
-- `gitleaks` (default) or `trufflehog` (`SECRETS_SCANNER=trufflehog`)
-
+- `/secrets` needs **no extra binary** (built-in crawler + regex scanner; streams JS in memory)
 ## systemd (Linux)
 
 ```ini

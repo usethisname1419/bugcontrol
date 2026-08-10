@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 from pathlib import Path
@@ -9,6 +10,7 @@ from urllib.parse import urlparse
 from bugcontrol.config import Settings
 from bugcontrol.db.store import Store
 from bugcontrol.models import utcnow
+from bugcontrol.scanners.js_crawl import crawl_and_scan_secrets, normalize_seed
 
 logger = logging.getLogger(__name__)
 
@@ -23,23 +25,24 @@ def filter_scannable_targets(targets: list[str], tool: str) -> list[str]:
         if not t:
             continue
         if WILDCARD_RE.match(t) and tool not in ("nuclei",):
-            # nuclei may accept wildcard DNS in some setups; skip for other tools
             continue
         if tool == "nmap":
             host = _to_host(t)
             if host and not WILDCARD_RE.match(host):
                 out.append(host)
-        elif tool in ("sqlmap", "nikto", "nuclei"):
+        elif tool in ("sqlmap", "nikto", "nuclei", "secrets"):
             if t.startswith("http://") or t.startswith("https://"):
-                out.append(t)
+                url = t
             elif "." in t and not WILDCARD_RE.match(t):
-                out.append(f"https://{t}")
-        elif tool == "secrets":
-            # secrets scanners need a path or URL; keep URLs/hosts as-is for remote fetchers
-            out.append(t)
+                url = f"https://{t}"
+            else:
+                continue
+            if tool == "secrets":
+                url = normalize_seed(url)
+            if url:
+                out.append(url)
         else:
             out.append(t)
-    # dedupe preserve order
     seen: set[str] = set()
     unique: list[str] = []
     for t in out:
@@ -118,8 +121,6 @@ class JobRunner:
         if not job or job["status"] in ("cancelled", "completed", "failed"):
             return
 
-        import json
-
         targets = json.loads(job["targets_json"] or "[]")
         tool = job["tool"]
         finding_id = job["finding_id"]
@@ -148,6 +149,10 @@ class JobRunner:
             f"Job `{job_id}` running `{tool}` on {len(targets)} target(s) for `{finding_id}`"
         )
 
+        if tool == "secrets":
+            await self._run_secrets_job(job_id, finding_id, targets, out_dir, log_path)
+            return
+
         cmd = self._build_command(tool, targets, out_dir)
         if not cmd:
             self.store.update_job(
@@ -157,6 +162,91 @@ class JobRunner:
                 error=f"unknown tool {tool}",
             )
             return
+
+        await self._run_subprocess_job(
+            job_id, finding_id, tool, cmd, out_dir, log_path, prepend_log=""
+        )
+
+    async def _run_secrets_job(
+        self,
+        job_id: str,
+        finding_id: str,
+        targets: list[str],
+        out_dir: Path,
+        log_path: Path,
+    ) -> None:
+        s = self.settings
+        await self._notify_msg(
+            f"Job `{job_id}` live JS crawl + in-memory regex secrets "
+            f"on {len(targets)} URL(s)…"
+        )
+        try:
+            result = await crawl_and_scan_secrets(
+                targets,
+                max_pages=s.secrets_crawl_max_pages,
+                max_js=s.secrets_crawl_max_js,
+                max_depth=s.secrets_crawl_depth,
+                timeout=s.secrets_crawl_timeout,
+                chunk_bytes=s.secrets_chunk_bytes,
+                overlap_bytes=s.secrets_overlap_bytes,
+                max_bytes_per_resource=s.secrets_max_js_bytes,
+                max_concurrent=s.secrets_max_concurrent,
+                max_hits=s.secrets_max_hits,
+            )
+        except Exception as exc:
+            self.store.update_job(
+                job_id,
+                status="failed",
+                finished_at=utcnow(),
+                error=str(exc),
+                summary=f"secrets scan failed: {exc}",
+            )
+            await self._notify_msg(f"Job `{job_id}` secrets scan failed: {exc}")
+            return
+
+        summary = result.summary()
+        log_path.write_text(summary, encoding="utf-8")
+        size = log_path.stat().st_size
+        self.store.add_artifact(finding_id, log_path, size, job_id=job_id)
+
+        status = "completed"
+        error = ""
+        if result.js_scanned == 0 and result.js_discovered == 0:
+            status = "failed"
+            error = "no JS discovered"
+        self.store.update_job(
+            job_id,
+            status=status,
+            finished_at=utcnow(),
+            exit_code=0 if status == "completed" else 1,
+            summary=summary[:3500],
+            error=error,
+            log_path=str(log_path),
+        )
+        await self._notify_msg(
+            f"Job `{job_id}` {status} (`secrets`)\n```\n{summary[:1500]}\n```"
+        )
+        self.store.enforce_storage_budget()
+
+    async def _run_subprocess_job(
+        self,
+        job_id: str,
+        finding_id: str,
+        tool: str,
+        cmd: list[str],
+        out_dir: Path,
+        log_path: Path,
+        *,
+        prepend_log: str = "",
+        append_mode: bool = False,
+        success_exit_codes: set[int] | None = None,
+        extra_summary_prefix: str = "",
+    ) -> None:
+        if success_exit_codes is None:
+            success_exit_codes = {0}
+
+        if prepend_log and not append_mode:
+            log_path.write_text(prepend_log, encoding="utf-8")
 
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -178,11 +268,12 @@ class JobRunner:
             return
 
         max_bytes = self.settings.artifact_max_bytes_per_job
-        written = 0
+        written = log_path.stat().st_size if log_path.exists() else 0
         timed_out = False
         try:
             assert proc.stdout is not None
-            with log_path.open("wb") as fh:
+            mode = "ab" if append_mode else "wb"
+            with log_path.open(mode) as fh:
                 while True:
                     if job_id in self._cancel:
                         proc.kill()
@@ -228,14 +319,17 @@ class JobRunner:
         size = log_path.stat().st_size if log_path.exists() else 0
         self.store.add_artifact(finding_id, log_path, size, job_id=job_id)
 
-        summary = self._summarize_log(log_path)
+        summary = extra_summary_prefix + self._summarize_log(log_path)
         if timed_out:
             status = "failed"
             error = "timeout"
             summary = f"TIMEOUT\n{summary}"
+        elif exit_code in success_exit_codes:
+            status = "completed"
+            error = ""
         else:
-            status = "completed" if exit_code == 0 else "failed"
-            error = "" if exit_code == 0 else f"exit {exit_code}"
+            status = "failed"
+            error = f"exit {exit_code}"
 
         self.store.update_job(
             job_id,
@@ -257,7 +351,6 @@ class JobRunner:
         if tool == "nmap":
             return [s.nmap_bin, "-sV", "-T4", "-oN", "-", *targets[:50]]
         if tool == "sqlmap":
-            # Conservative: batch, crawl lightly, one URL at a time via -m list
             list_file = out_dir / "sqlmap_targets.txt"
             list_file.write_text("\n".join(targets[:20]), encoding="utf-8")
             return [
@@ -271,7 +364,6 @@ class JobRunner:
                 "--threads=2",
             ]
         if tool == "nikto":
-            # Nikto takes one host; scan first target (multi-target via loop later if needed)
             return [s.nikto_bin, "-h", targets[0], "-output", "-", "-Format", "txt"]
         if tool == "nuclei":
             list_file = out_dir / "nuclei_targets.txt"
@@ -283,11 +375,6 @@ class JobRunner:
                 "-silent",
                 "-nc",
             ]
-        if tool == "secrets":
-            if s.secrets_scanner == "trufflehog":
-                # Prefer git URL or filesystem; for hosts, skip with message
-                return [s.trufflehog_bin, "filesystem", str(out_dir)]
-            return [s.gitleaks_bin, "dir", str(out_dir), "--no-banner"]
         return None
 
     def _summarize_log(self, log_path: Path, max_lines: int = 40) -> str:
