@@ -1,0 +1,87 @@
+from __future__ import annotations
+
+from functools import lru_cache
+from pathlib import Path
+from typing import Literal
+
+from pydantic import field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+PlatformName = Literal["hackerone", "bugcrowd", "yeswehack"]
+SecretsScanner = Literal["gitleaks", "trufflehog"]
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
+    telegram_allowed_user_ids: str = ""
+
+    h1_username: str = ""
+    h1_api_token: str = ""
+
+    bugcrowd_token: str = ""
+
+    yeswehack_token: str = ""
+    yeswehack_totp_secret: str = ""
+
+    poll_interval_minutes: int = 30
+    enabled_platforms: str = "hackerone,bugcrowd,yeswehack"
+
+    db_path: Path = Path("data/bugcontrol.db")
+    db_max_bytes: int = 10 * 1024 * 1024 * 1024
+    db_soft_limit_bytes: int = 8 * 1024 * 1024 * 1024
+    artifact_dir: Path = Path("data/artifacts")
+    artifact_max_bytes_per_job: int = 50 * 1024 * 1024
+
+    scan_concurrency: int = 2
+    scan_timeout_seconds: int = 1800
+    secrets_scanner: SecretsScanner = "gitleaks"
+    nmap_bin: str = "nmap"
+    sqlmap_bin: str = "sqlmap"
+    nikto_bin: str = "nikto"
+    nuclei_bin: str = "nuclei"
+    gitleaks_bin: str = "gitleaks"
+    trufflehog_bin: str = "trufflehog"
+
+    cursor_api_key: str = ""
+    cursor_agent_repo: str = ""
+    cursor_model: str = "composer-2.5"
+    cursor_agent_ref: str = "main"
+
+    log_level: str = "INFO"
+
+    @field_validator("db_path", "artifact_dir", mode="before")
+    @classmethod
+    def _as_path(cls, value: object) -> Path:
+        return Path(str(value))
+
+    def allowed_user_ids(self) -> set[int]:
+        ids: set[int] = set()
+        for part in self.telegram_allowed_user_ids.split(","):
+            part = part.strip()
+            if part:
+                ids.add(int(part))
+        return ids
+
+    def platforms(self) -> list[PlatformName]:
+        out: list[PlatformName] = []
+        for part in self.enabled_platforms.split(","):
+            name = part.strip().lower()
+            if name in ("hackerone", "bugcrowd", "yeswehack"):
+                out.append(name)  # type: ignore[arg-type]
+        return out
+
+    def ensure_dirs(self) -> None:
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.artifact_dir.mkdir(parents=True, exist_ok=True)
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
