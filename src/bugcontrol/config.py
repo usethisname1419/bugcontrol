@@ -24,7 +24,8 @@ class Settings(BaseSettings):
     h1_username: str = ""
     h1_api_token: str = ""
 
-    bugcrowd_token: str = ""
+    bugcrowd_token: str = ""  # unused; kept for backward compat
+    bugcrowd_session: str = ""  # researcher _bugcrowd_session cookie
 
     yeswehack_token: str = ""
     yeswehack_totp_secret: str = ""

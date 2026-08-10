@@ -50,7 +50,7 @@ python -m bugcontrol
 ## Platform API tokens
 
 - **HackerOne:** Hacker API username + token → `H1_USERNAME`, `H1_API_TOKEN`
-- **Bugcrowd:** API token → `BUGCROWD_TOKEN`
+- **Bugcrowd:** public portal fetch (no API key / login). Optional `BUGCROWD_SESSION` only for private invites.
 - **YesWeHack:** Bearer/PAT → `YESWEHACK_TOKEN`
 
 Disable platforms with `ENABLED_PLATFORMS=hackerone,bugcrowd` (comma-separated).
