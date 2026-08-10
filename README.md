@@ -42,8 +42,8 @@ python -m bugcontrol
 | `/sqlmap <id>` | Queue sqlmap |
 | `/nikto <id>` | Queue nikto |
 | `/secrets <id>` | Live-crawl all JS (streamed) + in-memory regex secrets (22 patterns) |
-| `/ai <id>` | Launch Cursor cloud agent |
-| `/ai_resume <id> <msg>` | Continue agent |
+| `/ai <id>` | Cursor bug-hunter (packs scope + scan evidence, hunts vulns) |
+| `/ai_resume <id> <msg>` | Continue hunt |
 | `/jobs` `/job <id>` `/cancel <id>` | Job ops |
 | `/poll` | Force platform poll |
 
@@ -62,7 +62,7 @@ Disable platforms with `ENABLED_PLATFORMS=hackerone,bugcrowd` (comma-separated).
 3. Set `CURSOR_AGENT_REPO` to this private repo’s HTTPS URL (account must have access)
 4. Optional: `CURSOR_MODEL=composer-2.5`, `CURSOR_AGENT_REF=main`
 
-`/ai` clones the repo in Cursor cloud and runs a triage/test-plan prompt with in-scope assets. Local nmap/sqlmap/etc. still run on the VPS.
+`/ai` packs program scope + recent VPS scan evidence into a Cursor cloud agent that hunts for concrete vulnerabilities (not a generic recon checklist). Set `AI_AUTO_AFTER_SECRETS=true` to auto-launch after `/secrets`. Local nmap/sqlmap/etc. still run on the VPS.
 
 ## VPS tools
 

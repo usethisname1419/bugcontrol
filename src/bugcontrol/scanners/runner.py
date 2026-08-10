@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import re
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -15,6 +16,9 @@ from bugcontrol.scanners.js_crawl import crawl_and_scan_secrets, normalize_seed
 logger = logging.getLogger(__name__)
 
 WILDCARD_RE = re.compile(r"^\*\.")
+
+JobCompleteCallback = Callable[[str, str, str, str], Awaitable[None]]
+# (job_id, finding_id, tool, status)
 
 
 def filter_scannable_targets(targets: list[str], tool: str) -> list[str]:
@@ -66,10 +70,14 @@ class JobRunner:
         self._workers: list[asyncio.Task[None]] = []
         self._cancel: set[str] = set()
         self._notify: asyncio.Queue[str] | None = None
+        self._on_complete: JobCompleteCallback | None = None
 
     def set_notify_queue(self, q: asyncio.Queue[str]) -> None:
         """Queue of Telegram-facing status messages."""
         self._notify = q
+
+    def set_on_complete(self, cb: JobCompleteCallback) -> None:
+        self._on_complete = cb
 
     async def start(self) -> None:
         n = max(1, self.settings.scan_concurrency)
@@ -227,6 +235,7 @@ class JobRunner:
             f"Job `{job_id}` {status} (`secrets`)\n```\n{summary[:1500]}\n```"
         )
         self.store.enforce_storage_budget()
+        await self._fire_complete(job_id, finding_id, "secrets", status)
 
     async def _run_subprocess_job(
         self,
@@ -343,6 +352,7 @@ class JobRunner:
             f"Job `{job_id}` {status} (`{tool}`)\n```\n{summary[:1500]}\n```"
         )
         self.store.enforce_storage_budget()
+        await self._fire_complete(job_id, finding_id, tool, status)
 
     def _build_command(
         self, tool: str, targets: list[str], out_dir: Path
@@ -381,3 +391,15 @@ class JobRunner:
     async def _notify_msg(self, text: str) -> None:
         if self._notify is not None:
             await self._notify.put(text)
+
+    async def _fire_complete(
+        self, job_id: str, finding_id: str, tool: str, status: str
+    ) -> None:
+        if not self._on_complete:
+            return
+        try:
+            await self._on_complete(job_id, finding_id, tool, status)
+        except Exception:
+            logger.exception(
+                "on_complete callback failed for job=%s tool=%s", job_id, tool
+            )

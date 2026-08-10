@@ -50,6 +50,39 @@ class AppContext:
         except Exception:
             logger.exception("failed to alert for %s", finding.id)
 
+    async def on_job_complete(
+        self, job_id: str, finding_id: str, tool: str, status: str
+    ) -> None:
+        """Auto-launch Cursor bug-hunter after successful secrets scans."""
+        if tool != "secrets" or status != "completed":
+            return
+        if not self.settings.ai_auto_after_secrets:
+            return
+        if not self.agent.enabled():
+            await self.notify_queue.put(
+                f"Secrets `{job_id}` done. Set CURSOR_API_KEY + CURSOR_AGENT_REPO "
+                f"to auto-hunt, or run `/ai {finding_id}`."
+            )
+            return
+        await self.notify_queue.put(
+            f"Secrets done — launching Cursor bug-hunter for `{finding_id}`…"
+        )
+        try:
+            run_pk = await self.agent.launch(finding_id)
+            run = self.store.get_agent_run(run_pk)
+            summary = (run["summary"] if run else "") or ""
+            dash = (run["dashboard_url"] if run else "") or ""
+            msg = f"Bug-hunter `{run_pk}` finished for `{finding_id}`.\n"
+            if dash:
+                msg += f"Dashboard: {dash}\n"
+            msg += f"```\n{summary[:2500]}\n```"
+            await self.notify_queue.put(msg)
+        except Exception as exc:
+            logger.exception("auto ai hunt failed")
+            await self.notify_queue.put(
+                f"Auto `/ai` failed for `{finding_id}`: {exc}"
+            )
+
 
 async def run_app() -> None:
     settings = get_settings()
@@ -75,6 +108,7 @@ async def run_app() -> None:
     # Wire poller callback after ctx exists
     ctx.poller = Poller(settings, store, on_finding=ctx.on_finding_sync)
     jobs.set_notify_queue(ctx.notify_queue)
+    jobs.set_on_complete(ctx.on_job_complete)
 
     telegram_app = build_telegram_app(settings.telegram_bot_token, ctx)
     ctx.telegram_app = telegram_app

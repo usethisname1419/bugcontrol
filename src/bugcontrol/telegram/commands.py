@@ -18,8 +18,8 @@ HELP = """\
 `/help` — this message
 `/finding <id>` — show finding + scopes
 `/nmap <id>` `/sqlmap <id>` `/nikto <id>` `/secrets <id>`
-`/ai <id>` — launch Cursor cloud agent
-`/ai_resume <id> <message>` — continue agent
+`/ai <id>` — Cursor **bug-hunter** agent (uses scan evidence)
+`/ai_resume <id> <message>` — continue hunt
 `/jobs` — recent jobs
 `/job <job_id>` — job detail
 `/cancel <job_id>` — cancel queued/running job
@@ -128,7 +128,7 @@ async def cmd_ai(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("Finding not found.")
         return
     await update.message.reply_text(
-        f"Launching Cursor cloud agent for `{finding_id}`…",
+        f"Launching Cursor **bug-hunter** for `{finding_id}`…",
         parse_mode="Markdown",
     )
     try:

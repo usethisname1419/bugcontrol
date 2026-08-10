@@ -61,6 +61,8 @@ class Settings(BaseSettings):
     cursor_agent_repo: str = ""
     cursor_model: str = "composer-2.5"
     cursor_agent_ref: str = "main"
+    # After a successful /secrets job, auto-launch the Cursor bug-hunter agent
+    ai_auto_after_secrets: bool = True
 
     log_level: str = "INFO"
 
