@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Callable
+from datetime import datetime, timezone
 from typing import Awaitable
 
 from bugcontrol.config import Settings
@@ -27,7 +29,7 @@ class Poller:
         self.settings = settings
         self.store = store
         self.on_finding = on_finding
-        self._clients: list[PlatformClient] = []
+        self._lock = threading.Lock()
 
     def _build_clients(self) -> list[PlatformClient]:
         clients: list[PlatformClient] = []
@@ -40,28 +42,37 @@ class Poller:
                 clients.append(YesWeHackClient(self.settings))
         return clients
 
-    def close(self) -> None:
-        for client in self._clients:
+    @staticmethod
+    def _close_clients(clients: list[PlatformClient]) -> None:
+        for client in clients:
             close = getattr(client, "close", None)
             if callable(close):
-                close()
-        self._clients.clear()
+                try:
+                    close()
+                except Exception:
+                    logger.exception("failed closing client %s", getattr(client, "name", "?"))
 
     def run_once(self) -> list[Finding]:
+        # Bugcrowd scope crawl is slow; overlapping polls close each other's httpx clients.
+        if not self._lock.acquire(blocking=False):
+            logger.warning("poll already in progress; skipping this run")
+            return []
+
+        clients = self._build_clients()
         findings: list[Finding] = []
-        # First successful poll seeds the DB without Telegram spam.
-        bootstrap = self.store.get_meta("bootstrap_complete") != "1"
-        if bootstrap:
-            logger.info("bootstrap poll: seeding programs/scopes without alerts")
-        self._clients = self._build_clients()
         try:
-            for client in self._clients:
+            bootstrap = self.store.get_meta("bootstrap_complete") != "1"
+            if bootstrap:
+                logger.info("bootstrap poll: seeding programs/scopes without alerts")
+
+            for client in clients:
                 try:
                     findings.extend(
-                        self._poll_platform(client, alert=not bootstrap)
+                        self._poll_platform(client, alert=not bootstrap, bootstrap=bootstrap)
                     )
                 except Exception:
                     logger.exception("poll failed for platform %s", client.name)
+
             if bootstrap:
                 self.store.set_meta("bootstrap_complete", "1")
                 logger.info(
@@ -69,17 +80,48 @@ class Poller:
                     len(findings),
                 )
             self.store.enforce_storage_budget()
+            return findings if not bootstrap else []
         finally:
-            self.close()
-        return findings if not bootstrap else []
+            self._close_clients(clients)
+            self._lock.release()
+
+    def _should_fetch_scopes(
+        self, platform: str, handle: str, *, is_new_program: bool, bootstrap: bool
+    ) -> bool:
+        if bootstrap or is_new_program:
+            return True
+        key = f"scope_sync:{platform}:{handle}"
+        last = self.store.get_meta(key)
+        if not last:
+            return True
+        try:
+            last_dt = datetime.fromisoformat(last)
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=timezone.utc)
+        except ValueError:
+            return True
+        age = (datetime.now(timezone.utc) - last_dt).total_seconds()
+        return age >= self.settings.scope_refresh_hours * 3600
+
+    def _mark_scopes_synced(self, platform: str, handle: str) -> None:
+        self.store.set_meta(
+            f"scope_sync:{platform}:{handle}",
+            datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        )
 
     def _poll_platform(
-        self, client: PlatformClient, *, alert: bool = True
+        self,
+        client: PlatformClient,
+        *,
+        alert: bool = True,
+        bootstrap: bool = False,
     ) -> list[Finding]:
         logger.info("polling %s", client.name)
         programs = client.list_programs()
         known = self.store.known_program_handles(client.name)  # type: ignore[arg-type]
         findings: list[Finding] = []
+        scopes_fetched = 0
+        scopes_skipped = 0
 
         for program in programs:
             is_new_program = program.handle not in known
@@ -100,8 +142,19 @@ class Poller:
                     self._emit(finding)
                 known.add(program.handle)
 
+            if not self._should_fetch_scopes(
+                program.platform,
+                program.handle,
+                is_new_program=is_new_program,
+                bootstrap=bootstrap,
+            ):
+                scopes_skipped += 1
+                continue
+
             try:
                 scopes = client.list_scopes(program)
+                scopes_fetched += 1
+                self._mark_scopes_synced(program.platform, program.handle)
             except Exception:
                 logger.exception(
                     "failed listing scopes for %s/%s",
@@ -161,9 +214,11 @@ class Poller:
                         self._emit(finding)
 
         logger.info(
-            "%s: %s programs, %s findings",
+            "%s: %s programs, scopes_fetched=%s skipped=%s findings=%s",
             client.name,
             len(programs),
+            scopes_fetched,
+            scopes_skipped,
             len(findings),
         )
         return findings
@@ -173,9 +228,7 @@ class Poller:
             return
         try:
             result = self.on_finding(finding)
-            # Support async callbacks scheduled by the app layer.
             if result is not None and hasattr(result, "__await__"):
-                # Caller is responsible for awaiting; sync path ignores.
                 pass
         except Exception:
             logger.exception("alert callback failed for %s", finding.id)

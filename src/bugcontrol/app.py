@@ -127,6 +127,8 @@ async def run_app() -> None:
         minutes=max(1, settings.poll_interval_minutes),
         id="platform_poll",
         replace_existing=True,
+        max_instances=1,
+        coalesce=True,
     )
 
     await jobs.start()

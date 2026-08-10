@@ -32,6 +32,8 @@ class Settings(BaseSettings):
 
     poll_interval_minutes: int = 30
     enabled_platforms: str = "hackerone,bugcrowd,yeswehack"
+    # Re-fetch scopes for known programs this often (hours). New programs always fetch.
+    scope_refresh_hours: float = 6.0
 
     db_path: Path = Path("data/bugcontrol.db")
     db_max_bytes: int = 10 * 1024 * 1024 * 1024
