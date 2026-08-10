@@ -28,7 +28,6 @@ def build_telegram_app(token: str, app_context: object) -> Application:
         ("sqlmap", cmds.cmd_sqlmap),
         ("nikto", cmds.cmd_nikto),
         ("secrets", cmds.cmd_secrets),
-        ("nuclei", cmds.cmd_nuclei),
         ("ai", cmds.cmd_ai),
         ("ai_resume", cmds.cmd_ai_resume),
         ("jobs", cmds.cmd_jobs),

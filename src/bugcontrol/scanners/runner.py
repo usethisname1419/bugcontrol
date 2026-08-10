@@ -24,13 +24,13 @@ def filter_scannable_targets(targets: list[str], tool: str) -> list[str]:
         t = t.strip()
         if not t:
             continue
-        if WILDCARD_RE.match(t) and tool not in ("nuclei",):
+        if WILDCARD_RE.match(t):
             continue
         if tool == "nmap":
             host = _to_host(t)
             if host and not WILDCARD_RE.match(host):
                 out.append(host)
-        elif tool in ("sqlmap", "nikto", "nuclei", "secrets"):
+        elif tool in ("sqlmap", "nikto", "secrets"):
             if t.startswith("http://") or t.startswith("https://"):
                 url = t
             elif "." in t and not WILDCARD_RE.match(t):
@@ -365,16 +365,6 @@ class JobRunner:
             ]
         if tool == "nikto":
             return [s.nikto_bin, "-h", targets[0], "-output", "-", "-Format", "txt"]
-        if tool == "nuclei":
-            list_file = out_dir / "nuclei_targets.txt"
-            list_file.write_text("\n".join(targets[:100]), encoding="utf-8")
-            return [
-                s.nuclei_bin,
-                "-l",
-                str(list_file),
-                "-silent",
-                "-nc",
-            ]
         return None
 
     def _summarize_log(self, log_path: Path, max_lines: int = 40) -> str:

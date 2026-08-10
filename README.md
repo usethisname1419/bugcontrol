@@ -9,7 +9,7 @@ Scanning is **manual only** (Telegram command). Only in-scope, submission-eligib
 - Platform adapters with rate-limit backoff
 - First poll **bootstraps silently** (no alert flood), then alerts on real deltas
 - Finding IDs like `f_a1b2c3`
-- Telegram: `/nmap`, `/sqlmap`, `/nikto`, `/secrets`, `/nuclei`, `/ai`, `/ai_resume`
+- Telegram: `/nmap`, `/sqlmap`, `/nikto`, `/secrets`, `/ai`, `/ai_resume`
 - SQLite hard-capped (~10 GiB via `PRAGMA max_page_count`) + artifact retention
 - Cursor cloud agents via `cursor-sdk`
 
@@ -42,7 +42,6 @@ python -m bugcontrol
 | `/sqlmap <id>` | Queue sqlmap |
 | `/nikto <id>` | Queue nikto |
 | `/secrets <id>` | Live-crawl all JS (streamed) + in-memory regex secrets (22 patterns) |
-| `/nuclei <id>` | Queue nuclei |
 | `/ai <id>` | Launch Cursor cloud agent |
 | `/ai_resume <id> <msg>` | Continue agent |
 | `/jobs` `/job <id>` `/cancel <id>` | Job ops |
@@ -69,7 +68,7 @@ Disable platforms with `ENABLED_PLATFORMS=hackerone,bugcrowd` (comma-separated).
 
 Install on the host PATH (or set `*_BIN` in `.env`):
 
-- `nmap`, `sqlmap`, `nikto`, `nuclei`
+- `nmap`, `sqlmap`, `nikto`
 - `/secrets` needs **no extra binary** (built-in crawler + regex scanner; streams JS in memory)
 ## systemd (Linux)
 

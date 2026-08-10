@@ -24,7 +24,7 @@ def format_finding_alert(finding: Finding) -> str:
     lines.append(
         "Commands: "
         f"/nmap {finding.id} · /sqlmap {finding.id} · /nikto {finding.id} · "
-        f"/secrets {finding.id} · /nuclei {finding.id} · /ai {finding.id}"
+        f"/secrets {finding.id} · /ai {finding.id}"
     )
     return "\n".join(lines)
 

@@ -53,7 +53,6 @@ class Settings(BaseSettings):
     nmap_bin: str = "nmap"
     sqlmap_bin: str = "sqlmap"
     nikto_bin: str = "nikto"
-    nuclei_bin: str = "nuclei"
     gitleaks_bin: str = "gitleaks"
     trufflehog_bin: str = "trufflehog"
 

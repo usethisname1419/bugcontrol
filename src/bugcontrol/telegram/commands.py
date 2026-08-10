@@ -17,7 +17,7 @@ HELP = """\
 *Bugcontrol commands*
 `/help` — this message
 `/finding <id>` — show finding + scopes
-`/nmap <id>` `/sqlmap <id>` `/nikto <id>` `/secrets <id>` `/nuclei <id>`
+`/nmap <id>` `/sqlmap <id>` `/nikto <id>` `/secrets <id>`
 `/ai <id>` — launch Cursor cloud agent
 `/ai_resume <id> <message>` — continue agent
 `/jobs` — recent jobs
@@ -113,10 +113,6 @@ async def cmd_nikto(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def cmd_secrets(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _enqueue_tool(update, context, "secrets")
-
-
-async def cmd_nuclei(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await _enqueue_tool(update, context, "nuclei")
 
 
 async def cmd_ai(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
