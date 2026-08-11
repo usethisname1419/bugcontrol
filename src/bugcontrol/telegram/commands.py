@@ -85,16 +85,23 @@ async def _enqueue_tool(
         return
     assert update.message
     if not context.args:
-        await update.message.reply_text(f"Usage: /{tool} <finding_id>")
+        await update.message.reply_text(
+            f"Usage: /{tool} <finding_id>\nExample: `/{tool} f8bbd7a`",
+            parse_mode="Markdown",
+        )
         return
     app = _ctx(context)
-    finding_id = context.args[0]
-    if not app.store.get_finding(finding_id):
-        await update.message.reply_text("Finding not found.")
+    finding = app.store.get_finding(context.args[0])
+    if not finding:
+        await update.message.reply_text(
+            f"Finding not found for `{context.args[0]}`. "
+            "Copy the id from the alert (inside backticks).",
+            parse_mode="Markdown",
+        )
         return
-    job_id = await app.jobs.enqueue(finding_id, tool)
+    job_id = await app.jobs.enqueue(finding.id, tool)
     await update.message.reply_text(
-        f"Queued `{tool}` as `{job_id}` for `{finding_id}`",
+        f"Queued `{tool}` as `{job_id}` for `{finding.id}`",
         parse_mode="Markdown",
     )
 
@@ -120,13 +127,20 @@ async def cmd_ai(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     assert update.message
     if not context.args:
-        await update.message.reply_text("Usage: /ai <finding_id>")
+        await update.message.reply_text(
+            "Usage: /ai <finding_id>\nExample: `/ai f8bbd7a`",
+            parse_mode="Markdown",
+        )
         return
     app = _ctx(context)
-    finding_id = context.args[0]
-    if not app.store.get_finding(finding_id):
-        await update.message.reply_text("Finding not found.")
+    finding = app.store.get_finding(context.args[0])
+    if not finding:
+        await update.message.reply_text(
+            f"Finding not found for `{context.args[0]}`.",
+            parse_mode="Markdown",
+        )
         return
+    finding_id = finding.id
     await update.message.reply_text(
         f"Launching Cursor **bug-hunter** for `{finding_id}`…",
         parse_mode="Markdown",
@@ -153,7 +167,14 @@ async def cmd_ai_resume(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text("Usage: /ai_resume <finding_id> <message>")
         return
     app = _ctx(context)
-    finding_id = context.args[0]
+    finding = app.store.get_finding(context.args[0])
+    if not finding:
+        await update.message.reply_text(
+            f"Finding not found for `{context.args[0]}`.",
+            parse_mode="Markdown",
+        )
+        return
+    finding_id = finding.id
     message = " ".join(context.args[1:])
     try:
         run_pk = await app.agent.resume(finding_id, message)

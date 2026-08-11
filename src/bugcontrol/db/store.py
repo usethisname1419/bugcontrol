@@ -16,7 +16,8 @@ SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 
 
 def new_finding_id() -> str:
-    return f"f_{secrets.token_hex(3)}"
+    # No underscore: Telegram legacy Markdown treats _text_ as italic and corrupts cmds.
+    return f"f{secrets.token_hex(3)}"
 
 
 def new_job_id() -> str:
@@ -258,27 +259,48 @@ class Store:
         )
 
     def get_finding(self, finding_id: str) -> Finding | None:
-        row = self._conn.execute(
-            "SELECT * FROM findings WHERE id = ?", (finding_id,)
-        ).fetchone()
-        if not row:
+        raw = (finding_id or "").strip()
+        if not raw:
             return None
-        return Finding(
-            id=row["id"],
-            kind=row["kind"],
-            platform=row["platform"],
-            program_handle=row["program_handle"],
-            program_name=row["program_name"],
-            program_url=row["program_url"],
-            scope_id=row["scope_id"],
-            asset_identifier=row["asset_identifier"] or "",
-            asset_type=row["asset_type"] or "",
-            eligible_for_bounty=bool(row["eligible_for_bounty"]),
-            summary=row["summary"] or "",
-            details=json.loads(row["details_json"] or "{}"),
-            created_at=row["created_at"],
-            alerted_at=row["alerted_at"],
-        )
+        for candidate in self._finding_id_candidates(raw):
+            row = self._conn.execute(
+                "SELECT * FROM findings WHERE id = ?", (candidate,)
+            ).fetchone()
+            if row:
+                return Finding(
+                    id=row["id"],
+                    kind=row["kind"],
+                    platform=row["platform"],
+                    program_handle=row["program_handle"],
+                    program_name=row["program_name"],
+                    program_url=row["program_url"],
+                    scope_id=row["scope_id"],
+                    asset_identifier=row["asset_identifier"] or "",
+                    asset_type=row["asset_type"] or "",
+                    eligible_for_bounty=bool(row["eligible_for_bounty"]),
+                    summary=row["summary"] or "",
+                    details=json.loads(row["details_json"] or "{}"),
+                    created_at=row["created_at"],
+                    alerted_at=row["alerted_at"],
+                )
+        return None
+
+    @staticmethod
+    def _finding_id_candidates(raw: str) -> list[str]:
+        """Accept f1a2b3c, f_1a2b3c, and accidental markdown-stripped forms."""
+        out: list[str] = []
+        for c in (raw, raw.lower()):
+            if c and c not in out:
+                out.append(c)
+        if raw.startswith("f_") and len(raw) > 2:
+            alt = "f" + raw[2:]
+            if alt not in out:
+                out.append(alt)
+        elif raw.startswith("f") and not raw.startswith("f_") and len(raw) > 1:
+            alt = "f_" + raw[1:]
+            if alt not in out:
+                out.append(alt)
+        return out
 
     def mark_finding_alerted(self, finding_id: str) -> None:
         self._conn.execute(
